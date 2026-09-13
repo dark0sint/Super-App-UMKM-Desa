@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>UMKM SMART — Dashboard Uji Coba</title>
+<style>
+  :root{
+    --sawah:#2F5233;
+    --sawah-dark:#1E3A22;
+    --gabah:#E8C468;
+    --tanah:#8B5E3C;
+    --kertas:#FBF7EE;
+    --tinta:#2B2620;
+    --garis:#DED4BE;
+    --merah:#B54834;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; font-family:'Segoe UI', Roboto, sans-serif; background:var(--kertas); color:var(--tinta);
+  }
+  header{
+    background:var(--sawah); color:var(--kertas); padding:22px 28px; display:flex; align-items:center; justify-content:space-between;
+    border-bottom:4px solid var(--gabah);
+  }
+  header h1{ margin:0; font-size:1.4rem; letter-spacing:.3px; }
+  header span{ font-size:.8rem; opacity:.85; }
+  #userbox{ font-size:.85rem; text-align:right; }
+  nav{
+    display:flex; gap:2px; background:var(--sawah-dark); flex-wrap:wrap; padding:0 20px;
+  }
+  nav button{
+    background:transparent; border:none; color:var(--kertas); padding:12px 16px; cursor:pointer;
+    font-size:.85rem; border-bottom:3px solid transparent; opacity:.75;
+  }
+  nav button.active{ opacity:1; border-bottom-color:var(--gabah); font-weight:600; }
+  main{ max-width:960px; margin:0 auto; padding:24px 20px 60px; }
+  .card{ background:#fff; border:1px solid var(--garis); border-radius:6px; padding:18px 20px; margin-bottom:18px; }
+  .card h2{ margin-top:0; font-size:1.05rem; color:var(--sawah-dark); }
+  label{ display:block; font-size:.78rem; margin:8px 0 3px; color:#5b5648; }
+  input, select, textarea{
+    width:100%; padding:8px 10px; border:1px solid var(--garis); border-radius:4px; font-size:.9rem; background:#fffdf9;
+  }
+  .row{ display:flex; gap:12px; flex-wrap:wrap; }
+  .row > div{ flex:1; min-width:140px; }
+  button.act{
+    background:var(--sawah); color:#fff; border:none; padding:9px 16px; border-radius:4px; cursor:pointer; font-size:.85rem;
+    margin-top:10px;
+  }
+  button.act.secondary{ background:var(--tanah); }
+  button.act.danger{ background:var(--merah); }
+  table{ width:100%; border-collapse:collapse; font-size:.85rem; margin-top:10px; }
+  th,td{ text-align:left; padding:6px 8px; border-bottom:1px solid var(--garis); }
+  .pill{ display:inline-block; padding:2px 8px; border-radius:20px; font-size:.72rem; background:var(--gabah); color:#4a3a12;}
+  .pill.warn{ background:#f4d4c8; color:var(--merah); }
+  .muted{ color:#8a8578; font-size:.8rem; }
+  pre{ background:#f4efe2; padding:10px; border-radius:4px; font-size:.75rem; overflow:auto; }
+  .grid2{ display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  @media(max-width:640px){ .grid2{ grid-template-columns:1fr; } }
+  #toast{
+    position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:var(--sawah-dark); color:#fff;
+    padding:10px 20px; border-radius:6px; font-size:.85rem; display:none; z-index:99;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>UMKM SMART</h1>
+    <span>Aplikasi pendamping usaha untuk UMKM desa</span>
+  </div>
+  <div id="userbox">Belum login</div>
+</header>
+
+<nav id="nav"></nav>
+<main id="main"></main>
+<div id="toast"></div>
+
+<script>
+const API = ''; // same origin
+let token = localStorage.getItem('token') || null;
+let currentUser = JSON.parse(localStorage.getItem('user') || 'null');
+
+function toast(msg, isError){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.style.background = isError ? '#B54834' : '#1E3A22';
+  t.style.display = 'block';
+  setTimeout(()=> t.style.display='none', 3000);
+}
+
+async function api(path, method='GET', body=null){
+  const headers = {'Content-Type':'application/json'};
+  if(token) headers['Authorization'] = 'Bearer ' + token;
+  const res = await fetch(API + path, { method, headers, body: body ? JSON.stringify(body) : null });
+  const json = await res.json();
+  if(!json.success){ toast(json.message || 'Terjadi kesalahan', true); throw new Error(json.message); }
+  return json.data;
+}
+
+function renderUserBox(){
+  const box = document.getElementById('userbox');
+  box.innerHTML = currentUser
+    ? `${currentUser.nama_usaha}<br><span class="muted">${currentUser.nama_pemilik} · ${currentUser.no_wa}</span> <button class="act danger" style="margin-left:8px;padding:4px 10px;" onclick="logout()">Keluar</button>`
+    : 'Belum login';
+}
+function logout(){ localStorage.clear(); token=null; currentUser=null; renderUserBox(); route('login'); }
+
+const TABS = [
+  {id:'login', label:'Masuk'},
+  {id:'keuangan', label:'Keuangan'},
+  {id:'stok', label:'Stok'},
+  {id:'kasir', label:'Kasir'},
+  {id:'qris', label:'QRIS'},
+  {id:'katalog', label:'Katalog'},
+  {id:'marketplace', label:'Pasar Desa'},
+  {id:'logistik', label:'Logistik'},
+  {id:'bumdes', label:'BUMDes'},
+  {id:'edukasi', label:'Belajar'},
+  {id:'perizinan', label:'Perizinan'},
+];
+
+function renderNav(active){
+  const nav = document.getElementById('nav');
+  nav.innerHTML = TABS.map(t => `<button data-id="${t.id}" class="${t.id===active?'active':''}">${t.label}</button>`).join('');
+  nav.querySelectorAll('button').forEach(b => b.onclick = () => route(b.dataset.id));
+}
+
+function requireLogin(){
+  if(!token){ toast('Silakan login dahulu.', true); route('login'); return false; }
+  return true;
+}
+
+async function route(id){
+  renderNav(id);
+  const main = document.getElementById('main');
+  main.innerHTML = '<p class="muted">Memuat...</p>';
+  try{
+    if(id==='login') return renderLogin();
+    if(!requireLogin()) return;
+    if(id==='keuangan') return renderKeuangan();
+    if(id==='stok') return renderStok();
+    if(id==='kasir') return renderKasir();
+    if(id==='qris') return renderQris();
+    if(id==='katalog') return renderKatalog();
+    if(id==='marketplace') return renderMarketplace();
+    if(id==='logistik') return renderLogistik();
+    if(id==='bumdes') return renderBumdes();
+    if(id==='edukasi') return renderEdukasi();
+    if(id==='perizinan') return renderPerizinan();
+  }catch(e){ console.error(e); }
+}
+
+// ---------------- LOGIN ----------------
+function renderLogin(){
+  document.getElementById('main').innerHTML = `
+    <div class="card" style="max-width:420px;margin:0 auto;">
+      <h2>Masuk / Daftar (tanpa password)</h2>
+      <p class="muted">Login memakai nomor WhatsApp + OTP. Jika belum punya akun, isi juga nama usaha untuk mendaftar otomatis.</p>
+      <label>Nomor WhatsApp</label>
+      <input id="no_wa" placeholder="08xxxxxxxxxx" />
+      <button class="act" onclick="requestOtp()">Kirim OTP</button>
+
+      <div id="otpSection" style="display:none;margin-top:14px;border-top:1px solid var(--garis);padding-top:14px;">
+        <label>Kode OTP</label>
+        <input id="otp_code" placeholder="6 digit kode (lihat log server jika mode dev)" />
+        <label>Nama Pemilik (jika akun baru)</label>
+        <input id="nama_pemilik" placeholder="Nama Anda" />
+        <label>Nama Usaha (jika akun baru)</label>
+        <input id="nama_usaha" placeholder="Contoh: Warung Bu Sari" />
+        <label>Desa</label>
+        <input id="desa" placeholder="Contoh: Desa Sukamaju" />
+        <button class="act" onclick="verifyOtp()">Verifikasi & Masuk</button>
+      </div>
+    </div>`;
+}
+
+async function requestOtp(){
+  const no_wa = document.getElementById('no_wa').value.trim();
+  if(!no_wa) return toast('Isi nomor WhatsApp dulu.', true);
+  await api('/api/auth/otp/request', 'POST', { no_wa });
+  document.getElementById('otpSection').style.display = 'block';
+  toast('OTP dikirim. Cek WhatsApp / log server (mode dev).');
+}
+async function verifyOtp(){
+  const no_wa = document.getElementById('no_wa').value.trim();
+  const code = document.getElementById('otp_code').value.trim();
+  const nama_pemilik = document.getElementById('nama_pemilik').value.trim();
+  const nama_usaha = document.getElementById('nama_usaha').value.trim();
+  const desa = document.getElementById('desa').value.trim();
+  const data = await api('/api/auth/otp/verify', 'POST', { no_wa, code, nama_pemilik, nama_usaha, desa });
+  token = data.token; currentUser = data.user;
+  localStorage.setItem('token', token); localStorage.setItem('user', JSON.stringify(currentUser));
+  renderUserBox();
+  toast('Login berhasil!');
+  route('keuangan');
+}
+
+// ---------------- KEUANGAN ----------------
+async function renderKeuangan(){
+  const laporan = await api('/api/keuangan/laporan/untung-rugi');
+  const list = await api('/api/keuangan');
+  document.getElementById('main').innerHTML = `
+    <div class="grid2">
+      <div class="card">
+        <h2>Ringkasan Untung-Rugi (30 hari)</h2>
+        <p>Pemasukan: <b>Rp${laporan.total_pemasukan.toLocaleString('id-ID')}</b></p>
+        <p>Pengeluaran: <b>Rp${laporan.total_pengeluaran.toLocaleString('id-ID')}</b></p>
+        <p>Status: <span class="pill ${laporan.status==='rugi'?'warn':''}">${laporan.status.toUpperCase()} Rp${Math.abs(laporan.laba_rugi).toLocaleString('id-ID')}</span></p>
+      </div>
+      <div class="card">
+        <h2>Catat Transaksi</h2>
+        <label>Tipe</label>
+        <select id="k_tipe"><option value="pemasukan">Pemasukan</option><option value="pengeluaran">Pengeluaran</option></select>
+        <label>Kategori</label>
+        <input id="k_kategori" placeholder="contoh: belanja_stok, operasional" />
+        <label>Jumlah (Rp)</label>
+        <input id="k_jumlah" type="number" />
+        <label>Keterangan</label>
+        <input id="k_ket" />
+        <button class="act" onclick="submitKeuangan()">Simpan</button>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Riwayat Transaksi</h2>
+      <table><thead><tr><th>Tanggal</th><th>Tipe</th><th>Kategori</th><th>Jumlah</th><th>Ket</th></tr></thead>
+      <tbody>${list.map(r=>`<tr><td>${r.tanggal}</td><td>${r.tipe}</td><td>${r.kategori}</td><td>Rp${r.jumlah.toLocaleString('id-ID')}</td><td>${r.keterangan||'-'}</td></tr>`).join('')}</tbody></table>
+    </div>`;
+}
+async function submitKeuangan(){
+  const tipe = document.getElementById('k_tipe').value;
+  const kategori = document.getElementById('k_kategori').value || 'lainnya';
+  const jumlah = Number(document.getElementById('k_jumlah').value);
+  const keterangan = document.getElementById('k_ket').value;
+  await api('/api/keuangan', 'POST', { tipe, kategori, jumlah, keterangan });
+  toast('Transaksi disimpan.');
+  route('keuangan');
+}
+
+// ---------------- STOK ----------------
+async function renderStok(){
+  const produk = await api('/api/stok/produk');
+  const notif = await api('/api/stok/notifikasi/stok-menipis');
+  document.getElementById('main').innerHTML = `
+    ${notif.jumlah_produk_menipis>0 ? `<div class="card" style="border-color:var(--merah);"><b>⚠ ${notif.pesan}</b></div>` : ''}
+    <div class="card">
+      <h2>Tambah Produk</h2>
+      <div class="row">
+        <div><label>Nama</label><input id="p_nama" /></div>
+        <div><label>Satuan</label><input id="p_satuan" value="pcs" /></div>
+      </div>
+      <div class="row">
+        <div><label>Harga Modal</label><input id="p_modal" type="number" /></div>
+        <div><label>Harga Jual</label><input id="p_jual" type="number" /></div>
+      </div>
+      <div class="row">
+        <div><label>Stok Awal</label><input id="p_stok" type="number" value="0" /></div>
+        <div><label>Stok Minimum</label><input id="p_min" type="number" value="5" /></div>
+      </div>
+      <label><input type="checkbox" id="p_publish" style="width:auto;"/> Tampilkan di katalog online</label>
+      <button class="act" onclick="submitProduk()">Simpan Produk</button>
+    </div>
+    <div class="card">
+      <h2>Daftar Produk</h2>
+      <table><thead><tr><th>Nama</th><th>Stok</th><th>Min</th><th>Harga Jual</th><th>Status</th></tr></thead>
+      <tbody>${produk.map(p=>`<tr><td>${p.nama}</td><td>${p.stok}</td><td>${p.stok_minimum}</td><td>Rp${p.harga_jual.toLocaleString('id-ID')}</td><td>${p.stok<=p.stok_minimum?'<span class="pill warn">Menipis</span>':'<span class="pill">Aman</span>'}</td></tr>`).join('')}</tbody></table>
+    </div>`;
+}
+async function submitProduk(){
+  const body = {
+    nama: document.getElementById('p_nama').value,
+    satuan: document.getElementById('p_satuan').value,
+    harga_modal: Number(document.getElementById('p_modal').value),
+    harga_jual: Number(document.getElementById('p_jual').value),
+    stok: Number(document.getElementById('p_stok').value),
+    stok_minimum: Number(document.getElementById('p_min').value),
+    is_published: document.getElementById('p_publish').checked,
+  };
+  await api('/api/stok/produk', 'POST', body);
+  toast('Produk disimpan.');
+  route('stok');
+}
+
+// ---------------- KASIR ----------------
+let kasirCart = [];
+async function renderKasir(){
+  const produk = await api('/api/stok/produk');
+  document.getElementById('main').innerHTML = `
+    <div class="card">
+      <h2>Kasir Digital (POS)</h2>
+      <div class="row">
+        <div style="flex:2">
+          <label>Pilih Produk</label>
+          <select id="kasir_produk">${produk.map(p=>`<option value="${p.id}" data-harga="${p.harga_jual}" data-nama="${p.nama}">${p.nama} (stok ${p.stok})</option>`).join('')}</select>
+        </div>
+        <div><label>Qty</label><input id="kasir_qty" type="number" value="1" /></div>
+      </div>
+      <button class="act secondary" onclick="addToCart()">+ Tambah ke Keranjang</button>
+      <table><thead><tr><th>Produk</th><th>Qty</th><th>Subtotal</th></tr></thead>
+        <tbody id="cartBody"></tbody>
+      </table>
+      <p><b>Total: Rp<span id="cartTotal">0</span></b></p>
+      <div class="row">
+        <div><label>Metode Bayar</label><select id="kasir_metode"><option value="tunai">Tunai</option><option value="qris">QRIS</option></select></div>
+        <div><label>Uang Diterima (tunai)</label><input id="kasir_diterima" type="number" /></div>
+      </div>
+      <button class="act" onclick="prosesKasir()">Proses Transaksi</button>
+    </div>
+    <div class="card"><h2>Transaksi Terakhir</h2><div id="strukArea" class="muted">Belum ada transaksi.</div></div>
+  `;
+  renderCart();
+}
+function addToCart(){
+  const sel = document.getElementById('kasir_produk');
+  const opt = sel.options[sel.selectedIndex];
+  const qty = Number(document.getElementById('kasir_qty').value);
+  kasirCart.push({ product_id: sel.value, nama: opt.dataset.nama, harga: Number(opt.dataset.harga), qty });
+  renderCart();
+}
+function renderCart(){
+  const body = document.getElementById('cartBody');
+  let total = 0;
+  body.innerHTML = kasirCart.map(it=>{ const sub = it.harga*it.qty; total+=sub; return `<tr><td>${it.nama}</td><td>${it.qty}</td><td>Rp${sub.toLocaleString('id-ID')}</td></tr>`; }).join('');
+  document.getElementById('cartTotal').textContent = total.toLocaleString('id-ID');
+}
+async function prosesKasir(){
+  if(kasirCart.length===0) return toast('Keranjang masih kosong.', true);
+  const body = {
+    items: kasirCart.map(it=>({ product_id: it.product_id, qty: it.qty })),
+    metode_bayar: document.getElementById('kasir_metode').value,
+    diterima: Number(document.getElementById('kasir_diterima').value) || null,
+  };
+  const data = await api('/api/kasir/transaksi', 'POST', body);
+  const struk = await api(`/api/kasir/transaksi/${data.transaksi.id}/struk`);
+  document.getElementById('strukArea').innerHTML = `<pre>${struk.struk_text}</pre>`;
+  kasirCart = [];
+  toast('Transaksi berhasil, stok & keuangan otomatis diperbarui.');
+  renderCart();
+}
+
+// ---------------- QRIS ----------------
+async function renderQris(){
+  const list = await api('/api/qris');
+  document.getElementById('main').innerHTML = `
+    <div class="card">
+      <h2>Buat QR Pembayaran</h2>
+      <label>Nominal (Rp)</label>
+      <input id="qris_amount" type="number" />
+      <button class="act" onclick="buatQris()">Buat QRIS</button>
+      <div id="qrisResult"></div>
+    </div>
+    <div class="card"><h2>Riwayat QRIS</h2>
+      <table><thead><tr><th>Ref</th><th>Nominal</th><th>Status</th></tr></thead>
+      <tbody>${list.map(q=>`<tr><td>${q.qris_ref}</td><td>Rp${q.amount.toLocaleString('id-ID')}</td><td>${q.status}</td></tr>`).join('')}</tbody></table>
+    </div>`;
+}
+async function buatQris(){
+  const amount = Number(document.getElementById('qris_amount').value);
+  const data = await api('/api/qris/create', 'POST', { amount });
+  document.getElementById('qrisResult').innerHTML = `
+    <img src="${data.qr_string}" style="width:180px;margin-top:10px;" />
+    <p class="muted">Mode simulasi (belum tersambung PSP asli). Ref: ${data.qris_ref}</p>
+    <button class="act secondary" onclick="simulasiBayar('${data.id}')">Simulasikan Sudah Dibayar</button>`;
+}
+async function simulasiBayar(id){
+  await api(`/api/qris/${id}/simulate-paid`, 'POST');
+  toast('Pembayaran QRIS berhasil (simulasi), tercatat otomatis di keuangan.');
+  route('qris');
+}
+
+// ---------------- KATALOG ----------------
+async function renderKatalog(){
+  const data = await api(`/api/katalog/${currentUser.id}`);
+  document.getElementById('main').innerHTML = `
+    <div class="card">
+      <h2>Toko Online Mini Anda</h2>
+      <p>Bagikan link ini ke WhatsApp / media sosial:</p>
+      <input value="${data.link_katalog}" readonly onclick="this.select()" />
+      <p class="muted" style="margin-top:10px;">Hanya produk yang ditandai "Tampilkan di katalog" (menu Stok) yang muncul di sini.</p>
+      <table><thead><tr><th>Produk</th><th>Harga</th></tr></thead>
+      <tbody>${data.produk.map(p=>`<tr><td>${p.nama}</td><td>Rp${p.harga_jual.toLocaleString('id-ID')}</td></tr>`).join('') || '<tr><td colspan=2 class="muted">Belum ada produk yang dipublish.</td></tr>'}</tbody></table>
+    </div>`;
+}
+
+// ---------------- MARKETPLACE ----------------
+async function renderMarketplace(){
+  const rows = await api('/api/marketplace');
+  document.getElementById('main').innerHTML = `
+    <div class="card">
+      <h2>Pasar Bersama — Produk Unggulan Desa</h2>
+      <table><thead><tr><th>Produk</th><th>UMKM</th><th>Desa</th><th>Harga</th></tr></thead>
+      <tbody>${rows.map(r=>`<tr><td>${r.nama}</td><td>${r.nama_usaha}</td><td>${r.desa||'-'}</td><td>Rp${r.harga_jual.toLocaleString('id-ID')}</td></tr>`).join('') || '<tr><td colspan=4 class="muted">Belum ada produk yang dipublish di seluruh desa.</td></tr>'}</tbody></table>
+    </div>`;
+}
+
+// ---------------- LOGISTIK ----------------
+async function renderLogistik(){
+  const kurir = await api('/api/logistik/kurir');
+  const pengiriman = await api('/api/logistik/pengiriman');
+  document.getElementById('main').innerHTML = `
+    <div class="card">
+      <h2>Ajukan Pengiriman</h2>
+      <label>Alamat Tujuan</label><input id="l_alamat" />
+      <label>Nama Penerima</label><input id="l_penerima" />
+      <label>Ongkir (Rp)</label><input id="l_ongkir" type="number" value="0" />
+      <label>Pilih Kurir Desa</label>
+      <select id="l_kurir"><option value="">-- Belum dipilih --</option>${kurir.map(k=>`<option value="${k.id}">${k.nama} (${k.jenis_kendaraan||'-'})</option>`).join('')}</select>
+      <button class="act" onclick="ajukanKirim()">Ajukan</button>
+    </div>
+    <div class="card"><h2>Riwayat Pengiriman</h2>
+      <table><thead><tr><th>Tujuan</th><th>Penerima</th><th>Status</th></tr></thead>
+      <tbody>${pengiriman.map(p=>`<tr><td>${p.alamat_tujuan}</td><td>${p.penerima}</td><td><span class="pill">${p.status}</span></td></tr>`).join('')}</tbody></table>
+    </div>`;
+}
+async function ajukanKirim(){
+  const body = {
+    alamat_tujuan: document.getElementById('l_alamat').value,
+    penerima: document.getElementById('l_penerima').value,
+    ongkir: Number(document.getElementById('l_ongkir').value),
+    kurir_id: document.getElementById('l_kurir').value || null,
+  };
+  await api('/api/logistik/pengiriman', 'POST', body);
+  toast('Pengiriman diajukan.');
+  route('logistik');
+}
+
+// ---------------- BUMDES ----------------
+async function renderBumdes(){
+  const list = await api('/api/bumdes/pengajuan');
+  document.getElementById('main').innerHTML = `
+    <div class="card">
+      <h2>Ajukan Modal Usaha / Pembiayaan Mikro</h2>
+      <label>Jenis</label>
+      <select id="b_jenis"><option value="modal_usaha">Modal Usaha</option><option value="pembiayaan_mikro">Pembiayaan Mikro</option></select>
+      <label>Jumlah Diajukan (Rp)</label><input id="b_jumlah" type="number" />
+      <label>Tenor (bulan)</label><input id="b_tenor" type="number" />
+      <label>Tujuan Penggunaan</label><textarea id="b_tujuan"></textarea>
+      <button class="act" onclick="ajukanBumdes()">Kirim Pengajuan</button>
+    </div>
+    <div class="card"><h2>Riwayat Pengajuan</h2>
+      <table><thead><tr><th>Jenis</th><th>Jumlah</th><th>Status</th></tr></thead>
+      <tbody>${list.map(b=>`<tr><td>${b.jenis}</td><td>Rp${b.jumlah_diajukan.toLocaleString('id-ID')}</td><td><span class="pill">${b.status}</span></td></tr>`).join('')}</tbody></table>
+    </div>`;
+}
+async function ajukanBumdes(){
+  const body = {
+    jenis: document.getElementById('b_jenis').value,
+    jumlah_diajukan: Number(document.getElementById('b_jumlah').value),
+    tenor_bulan: Number(document.getElementById('b_tenor').value) || null,
+    tujuan_penggunaan: document.getElementById('b_tujuan').value,
+  };
+  await api('/api/bumdes/pengajuan', 'POST', body);
+  toast('Pengajuan terkirim ke BUMDes.');
+  route('bumdes');
+}
+
+// ---------------- EDUKASI ----------------
+async function renderEdukasi(){
+  const list = await api('/api/edukasi');
+  document.getElementById('main').innerHTML = `
+    <div class="card"><h2>Pojok Belajar UMKM</h2>
+      ${list.map(e=>`<div style="border-bottom:1px solid var(--garis);padding:10px 0;">
+        <b>${e.judul}</b> <span class="pill">${e.tipe}</span><br>
+        <span class="muted">${e.isi_singkat || e.url_konten || ''}</span>
+        ${e.ukuran_kb ? `<br><span class="muted">Perkiraan kuota: ${e.ukuran_kb} KB</span>` : ''}
+      </div>`).join('')}
+    </div>`;
+}
+
+// ---------------- PERIZINAN ----------------
+async function renderPerizinan(){
+  const list = await api('/api/perizinan');
+  const detail = await Promise.all(list.map(l => api(`/api/perizinan/${l.slug}`)));
+  document.getElementById('main').innerHTML = `
+    <div class="card"><h2>Konsultasi & Panduan Perizinan</h2>
+    ${detail.map(d=>`
+      <h3>${d.judul}</h3>
+      <p class="muted">${d.ringkasan}</p>
+      <ol>${d.langkah.map(l=>`<li><b>${l.judul}:</b> ${l.detail}</li>`).join('')}</ol>
+      <p class="muted">${d.catatan}</p>
+      <hr style="border-color:var(--garis);margin:14px 0;">
+    `).join('')}
+    </div>`;
+}
+
+// init
+renderUserBox();
+route(token ? 'keuangan' : 'login');
+</script>
+</body>
+</html>
